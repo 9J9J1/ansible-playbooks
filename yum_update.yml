@@ -1,0 +1,35 @@
+---
+- name: Auto Update Linux Servers (Security Only - Robust)
+  hosts: all
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Run security updates (Auto-skip broken dependencies)
+      # 说明：
+      # 1. 使用 dnf 模块以支持 skip_broken 参数 (适用于 CentOS 8/9, RHEL 8/9, Fedora, openEuler 等)
+      # 2. skip_broken: yes 会自动跳过导致 Depsolve Error 的包，确保护航其他安全更新正常进行
+      # 3. 如果你的系统是非常老的 CentOS 7 (只有 yum 没有 dnf)，请将 module 改回 ansible.builtin.yum 并移除 skip_broken 行
+      ansible.builtin.dnf:
+        name: '*'
+        state: latest
+        security: yes       # 只更新标记为安全相关的包
+        update_cache: yes   # 更新前先刷新元数据
+        skip_broken: yes    # 【关键】自动跳过有依赖冲突的包，防止任务失败
+      register: yum_result
+      ignore_errors: yes    # 即使发生意外错误也继续执行后续任务
+
+    - name: Print update summary
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          Security Update Summary for {{ inventory_hostname }}
+          ==========================================
+          Status: Completed
+          Changes Made: {{ yum_result.changed }}
+          Task Failed:  {{ yum_result.failed | default(false) }}
+          
+          Note: If 'skip_broken' was active, conflicting packages 
+          (like ntp or perl in your previous error) were safely skipped 
+          to allow other security patches to install.
+          ==========================================
