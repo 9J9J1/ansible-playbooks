@@ -1,0 +1,15 @@
+---
+- name: JumpServer DB Backup (Root Direct)
+  hosts: all  # 或者指定你的 jumpserver 主机名
+  gather_facts: no
+  # 【关键点】这里不需要 become: yes，因为登录用户已经是 root
+  tasks:
+    - name: Execute JumpServer backup script
+      command: /opt/jumpserver-ce-v4.10.12-x86_64/jmsctl.sh backup_db
+      register: backup_result
+      # 如果脚本执行失败则标记任务失败
+      failed_when: backup_result.rc != 0
+
+    - name: Show Backup Output
+      debug:
+        var: backup_result.stdout_lines
