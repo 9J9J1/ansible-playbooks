@@ -1,0 +1,12 @@
+- hosts: all
+  gather_facts: no
+  tasks:
+    - name: Run IPv6 Monitor Script
+      command: python3 huawei_ipv6_full_monitor.py
+      args:
+        chdir: "/opt"  # 修正：直接写路径字符串，不要加 {{ }}
+      register: result
+      
+    - name: Print Output
+      debug: 
+        var: result.stdout_lines
