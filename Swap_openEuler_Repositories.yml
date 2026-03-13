@@ -1,0 +1,76 @@
+---
+- name: Swap openEuler Repositories to Tsinghua TUNA Mirror
+  hosts: all
+  become: yes
+  gather_facts: yes
+  vars:
+    # 定义 openEuler 各版本对应的清华源 repo 文件 URL
+    # 注意：openEuler 版本号通常格式为 "20.03", "22.03", "24.03"
+    tuna_repo_urls:
+      "20.03": "https://mirrors.tuna.tsinghua.edu.cn/repo/openeuler/openEuler-20.03-LTS/OS/x86_64/Packages/openEuler-repo-20.03-LTS-1.noarch.rpm"
+      "22.03": "https://mirrors.tuna.tsinghua.edu.cn/repo/openeuler/openEuler-22.03-LTS/OS/x86_64/Packages/openEuler-repo-22.03-LTS-1.noarch.rpm"
+      "24.03": "https://mirrors.tuna.tsinghua.edu.cn/repo/openeuler/openEuler-24.03-LTS/OS/x86_64/Packages/openEuler-repo-24.03-LTS-1.noarch.rpm"
+      # 如果不确定具体小版本，可以直接下载对应大版本的 .repo 配置文件文本
+      # 这里采用更通用的方法：直接替换 repo 文件内容，而不是安装 rpm 包（避免 rpm 包版本不匹配）
+      
+    # 直接指向 .repo 文件的文本地址 (TUNA 通常提供 help 页面，我们需要构造直接的 repo 文件地址)
+    # 经过核实，TUNA 没有直接提供 .repo 文本下载链接，最佳实践是修改现有文件或安装对应的 repo rpm。
+    # 为了最稳妥，我们使用 sed 替换现有文件中的域名。
+
+  tasks:
+    - name: Check if OS is openEuler
+      debug:
+        msg: "Detected OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+      when: ansible_distribution == "openEuler"
+
+    - name: Backup existing openEuler.repo
+      shell: cp /etc/yum.repos.d/openEuler.repo /etc/yum.repos.d/openEuler.repo.bak.$(date +%F-%H%M)
+      args:
+        creates: "/etc/yum.repos.d/openEuler.repo.bak.*"
+      when: ansible_distribution == "openEuler"
+      register: backup_result
+      changed_when: backup_result.rc == 0
+
+    - name: Replace repo baseurl to Tsinghua Mirror (Generic Sed Method)
+      shell: |
+        # 替换主仓库地址
+        sed -i 's|repo.openeuler.org|mirrors.tuna.tsinghua.edu.cn/repo/openeuler|g' /etc/yum.repos.d/openEuler.repo
+        # 替换 update 仓库地址 (如果有)
+        sed -i 's|repo.openeuler.org|mirrors.tuna.tsinghua.edu.cn/repo/openeuler|g' /etc/yum.repos.d/openEuler-update.repo 2>/dev/null || true
+        # 替换 EPOL 仓库地址 (如果有)
+        sed -i 's|repo.openeuler.org|mirrors.tuna.tsinghua.edu.cn/repo/openeuler|g' /etc/yum.repos.d/openEuler-EPOL.repo 2>/dev/null || true
+        
+        # 确保协议是 https (可选，TUNA 支持 http 和 https，推荐 https)
+        # sed -i 's|http://mirrors.tuna.tsinghua.edu.cn|https://mirrors.tuna.tsinghua.edu.cn|g' /etc/yum.repos.d/openEuler*.repo
+      args:
+        warn: false
+      when: ansible_distribution == "openEuler"
+      register: sed_result
+      changed_when: sed_result.rc == 0
+
+    - name: Verify repo file content (Debug)
+      command: head -n 20 /etc/yum.repos.d/openEuler.repo
+      when: ansible_distribution == "openEuler"
+      register: repo_content
+      changed_when: false
+
+    - name: Display Repo Content Snippet
+      debug:
+        var: repo_content.stdout_lines
+      when: ansible_distribution == "openEuler"
+
+    - name: Clean and Make Cache (openEuler)
+      command: "{{ item }}"
+      args:
+        warn: false
+      loop:
+        - "dnf clean all"   # openEuler 默认使用 dnf
+        - "dnf makecache"
+      when: ansible_distribution == "openEuler"
+      register: cache_result
+      changed_when: "'Metadata cache created' in cache_result.stdout or cache_result.rc == 0"
+
+    - name: Report Success
+      debug:
+        msg: "Successfully switched {{ ansible_distribution }} {{ ansible_distribution_version }} to Tsinghua Mirror."
+      when: ansible_distribution == "openEuler"
