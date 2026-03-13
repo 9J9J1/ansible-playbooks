@@ -1,0 +1,115 @@
+---
+- name: Deploy sshpass via AWX (Idempotent)
+  hosts: all
+  become: yes
+  gather_facts: yes
+  vars:
+    src_file: "sshpass-1.10.tar.gz"
+    src_dir: "sshpass-1.10"
+    remote_tmp_dir: "/tmp"
+    # 定义期望的版本或只是检查是否存在，这里我们只检查命令是否存在
+    check_command: "sshpass -V"
+
+  tasks:
+    - name: Install build dependencies (RedHat)
+      yum:
+        name: ["gcc", "make", "autoconf", "automake"]
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Install build dependencies (Debian)
+      apt:
+        name: ["gcc", "make", "autoconf", "automake"]
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    # --- 核心修改开始：检查是否已安装 ---
+    - name: Check if sshpass is already installed
+      command: "{{ check_command }}"
+      register: sshpass_check
+      failed_when: false  # 即使命令返回错误（未找到命令），也不要让任务失败
+      changed_when: false # 检查操作本身不改变系统状态
+      ignore_errors: false
+
+    - name: Set fact if sshpass needs installation
+      set_fact:
+        need_install: true
+      when: sshpass_check.rc != 0
+      # rc != 0 意味着命令执行失败，即系统中没有 sshpass
+
+    - name: Set fact if sshpass exists
+      set_fact:
+        need_install: false
+      when: sshpass_check.rc == 0
+      # rc == 0 意味着命令成功，系统中已有 sshpass
+    # --- 核心修改结束 ---
+
+    - name: Debug installation status
+      debug:
+        msg: "sshpass exists: {{ sshpass_check.rc == 0 }}, Will install: {{ need_install | default(true) }}"
+
+    # 只有当 need_install 为 true 时，才执行以下上传和编译步骤
+    - name: Upload sshpass source tarball to target
+      copy:
+        src: "{{ src_file }}"
+        dest: "{{ remote_tmp_dir }}/{{ src_file }}"
+        mode: '0644'
+      when: need_install | default(true)
+
+    - name: Extract the tarball on target
+      unarchive:
+        src: "{{ remote_tmp_dir }}/{{ src_file }}"
+        dest: "{{ remote_tmp_dir }}"
+        remote_src: yes
+      when: need_install | default(true)
+
+    - name: Configure sshpass
+      command: ./configure
+      args:
+        chdir: "{{ remote_tmp_dir }}/{{ src_dir }}"
+      register: configure_res
+      changed_when: "'creating' in configure_res.stdout or 'updating' in configure_res.stdout"
+      when: need_install | default(true)
+
+    - name: Compile sshpass
+      command: make
+      args:
+        chdir: "{{ remote_tmp_dir }}/{{ src_dir }}"
+      register: make_res
+      changed_when: make_res.rc == 0
+      when: need_install | default(true)
+
+    - name: Install sshpass
+      command: make install
+      args:
+        chdir: "{{ remote_tmp_dir }}/{{ src_dir }}"
+      register: install_res
+      changed_when: install_res.rc == 0
+      when: need_install | default(true)
+
+    - name: Verify installation
+      command: sshpass -V
+      register: version_check
+      changed_when: false
+      failed_when: version_check.rc != 0
+      # 无论是否刚安装，最后都要验证一下确保可用
+      when: need_install | default(true) or sshpass_check.rc == 0
+
+    - name: Show Result
+      debug:
+        msg: >
+          {% if need_install | default(true) %}
+          "Installation performed on {{ inventory_hostname }}."
+          {% else %}
+          "sshpass was already present on {{ inventory_hostname }}, skipped compilation."
+          {% endif %}
+
+    - name: Cleanup temporary files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ remote_tmp_dir }}/{{ src_file }}"
+        - "{{ remote_tmp_dir }}/{{ src_dir }}"
+      when: need_install | default(true)
