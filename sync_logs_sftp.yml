@@ -11,13 +11,10 @@
     remote_dir: "/upload/server"
     
     # --- 本地日志配置 ---
-    # 要打包的本地日志目录 (例如 /var/log, /var/log/nginx, /var/log/myapp)
     local_log_source: "/var/log"
-    # 临时打包文件存放路径
     temp_archive_path: "/tmp"
     
     # --- 文件名生成逻辑 ---
-    # 获取主机 IP (优先使用 ansible_default_ipv4.address，如果没有则用 ansible_all_ipv4_addresses 的第一个)
     host_ip: "{{ ansible_default_ipv4.address | default(ansible_all_ipv4_addresses[0]) }}"
     timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
     archive_filename: "{{ host_ip }}_{{ timestamp }}.tar.gz"
@@ -30,22 +27,27 @@
         state: directory
         mode: '0755'
 
-    - name: Compress logs into a tarball
-      archive:
-        path: "{{ local_log_source }}"
-        dest: "{{ full_local_path }}"
-        format: gz
-        exclude_path: 
-          - "{{ full_local_path }}" # 避免把自己打包进去
+    # 【修改点】使用 shell 调用 tar 命令代替 archive 模块
+    - name: Compress logs into a tarball using tar command
+      shell: |
+        tar -czf {{ full_local_path }} -C {{ local_log_source | dirname }} {{ local_log_source | basename }}
+      args:
+        creates: "{{ full_local_path }}" # 如果文件已存在则跳过，防止重复打包
       register: archive_result
 
     - name: Debug archive info
       debug:
         msg: "Created archive: {{ full_local_path }} for IP: {{ host_ip }}"
 
+    # 【注意】确保被管理节点安装了 sshpass
+    - name: Check if sshpass is installed
+      package:
+        name: sshpass
+        state: present
+      ignore_errors: true
+      become: true
+
     - name: Upload logs via SFTP
-      # 使用 shell 模块调用 sftp 命令，因为 ansible 原生 sftp 模块功能较简单
-      # 使用 sshpass 来非交互式输入密码
       shell: |
         sshpass -p '{{ sftp_password }}' sftp -o StrictHostKeyChecking=no -o BatchMode=no {{ sftp_user }}@{{ sftp_host }} << EOF
         cd {{ remote_dir }}
