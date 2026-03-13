@@ -1,0 +1,75 @@
+---
+- name: Upload Server Logs to Central SFTP Server
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    # --- 目标 SFTP 服务器配置 ---
+    sftp_host: "10.111.6.110"
+    sftp_user: "dxedu"
+    sftp_password: "Dxedu@2024"
+    remote_dir: "/upload/server"
+    
+    # --- 本地日志配置 ---
+    # 要打包的本地日志目录 (例如 /var/log, /var/log/nginx, /var/log/myapp)
+    local_log_source: "/var/log"
+    # 临时打包文件存放路径
+    temp_archive_path: "/tmp"
+    
+    # --- 文件名生成逻辑 ---
+    # 获取主机 IP (优先使用 ansible_default_ipv4.address，如果没有则用 ansible_all_ipv4_addresses 的第一个)
+    host_ip: "{{ ansible_default_ipv4.address | default(ansible_all_ipv4_addresses[0]) }}"
+    timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
+    archive_filename: "{{ host_ip }}_{{ timestamp }}.tar.gz"
+    full_local_path: "{{ temp_archive_path }}/{{ archive_filename }}"
+
+  tasks:
+    - name: Ensure temporary directory exists
+      file:
+        path: "{{ temp_archive_path }}"
+        state: directory
+        mode: '0755'
+
+    - name: Compress logs into a tarball
+      archive:
+        path: "{{ local_log_source }}"
+        dest: "{{ full_local_path }}"
+        format: gz
+        exclude_path: 
+          - "{{ full_local_path }}" # 避免把自己打包进去
+      register: archive_result
+
+    - name: Debug archive info
+      debug:
+        msg: "Created archive: {{ full_local_path }} for IP: {{ host_ip }}"
+
+    - name: Upload logs via SFTP
+      # 使用 shell 模块调用 sftp 命令，因为 ansible 原生 sftp 模块功能较简单
+      # 使用 sshpass 来非交互式输入密码
+      shell: |
+        sshpass -p '{{ sftp_password }}' sftp -o StrictHostKeyChecking=no -o BatchMode=no {{ sftp_user }}@{{ sftp_host }} << EOF
+        cd {{ remote_dir }}
+        put {{ full_local_path }}
+        bye
+        EOF
+      args:
+        warn: false
+        executable: /bin/bash
+      register: sftp_result
+      ignore_errors: true
+
+    - name: Check Upload Status
+      fail:
+        msg: "SFTP Upload failed! Return code: {{ sftp_result.rc }}, Stderr: {{ sftp_result.stderr }}"
+      when: sftp_result.rc != 0
+
+    - name: Clean up local archive after successful upload
+      file:
+        path: "{{ full_local_path }}"
+        state: absent
+      when: sftp_result.rc == 0
+
+    - name: Success Message
+      debug:
+        msg: "✅ Successfully uploaded {{ archive_filename }} to {{ sftp_host }}:{{ remote_dir }}"
+      when: sftp_result.rc == 0
