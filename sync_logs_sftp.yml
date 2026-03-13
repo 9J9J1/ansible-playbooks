@@ -1,13 +1,14 @@
 ---
-- name: Upload Server Logs to Central SFTP Server
+- name: Upload Server Logs to Central FTP Server (Port 21)
   hosts: all
   become: true
   gather_facts: true
   vars:
-    # --- 目标 SFTP 服务器配置 ---
-    sftp_host: "10.111.6.110"
-    sftp_user: "dxedu"
-    sftp_password: "Dxedu@2024"
+    # --- 目标 FTP 服务器配置 ---
+    ftp_host: "10.111.6.110"
+    ftp_port: 21
+    ftp_user: "dxedu"
+    ftp_password: "Dxedu@2024"
     remote_dir: "/upload/server"
     
     # --- 本地日志配置 ---
@@ -15,6 +16,7 @@
     temp_archive_path: "/tmp"
     
     # --- 文件名生成逻辑 ---
+    # 获取 IP，如果没有默认 IPv4，则取第一个
     host_ip: "{{ ansible_default_ipv4.address | default(ansible_all_ipv4_addresses[0]) }}"
     timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
     archive_filename: "{{ host_ip }}_{{ timestamp }}.tar.gz"
@@ -38,36 +40,45 @@
       debug:
         msg: "Created archive: {{ full_local_path }} for IP: {{ host_ip }}"
 
-    - name: Ensure sshpass is installed
+    - name: Ensure lftp is installed (Required for FTP uploads)
       package:
-        name: sshpass
+        name: lftp
         state: present
       ignore_errors: true
+      register: pkg_install
 
-    - name: Upload logs via SFTP
-      # 使用 echo 管道代替 << EOF，避免 shell 解析问题
-      # 移除已废弃的 warn 参数
-      shell: >
-        echo -e "cd {{ remote_dir }}\nput {{ full_local_path }}\nbye" | 
-        sshpass -p '{{ sftp_password }}' sftp -o StrictHostKeyChecking=no -o BatchMode=no {{ sftp_user }}@{{ sftp_host }}
+    - name: Fallback to curl if lftp installation failed
+      debug:
+        msg: "Warning: lftp installation failed or skipped. Will attempt with curl if available."
+      when: pkg_install.failed
+
+    - name: Upload logs via FTP (using lftp)
+      # 使用 lftp 进行上传，支持被动模式，更适合防火墙环境
+      shell: |
+        lftp -c "
+        open -u {{ ftp_user }},{{ ftp_password }} ftp://{{ ftp_host }}:{{ ftp_port }};
+        cd {{ remote_dir }};
+        put {{ full_local_path }};
+        bye
+        "
       args:
         executable: /bin/bash
-      register: sftp_result
+      register: ftp_result
       ignore_errors: true
-      failed_when: sftp_result.rc != 0
+      failed_when: ftp_result.rc != 0
 
     - name: Check Upload Status
       fail:
-        msg: "SFTP Upload failed! Return code: {{ sftp_result.rc }}, Stderr: {{ sftp_result.stderr | default('Unknown error') }}"
-      when: sftp_result.failed
+        msg: "FTP Upload failed! Return code: {{ ftp_result.rc }}, Stderr: {{ ftp_result.stderr | default('Unknown error') }}"
+      when: ftp_result.failed
 
     - name: Clean up local archive after successful upload
       file:
         path: "{{ full_local_path }}"
         state: absent
-      when: not sftp_result.failed
+      when: not ftp_result.failed
 
     - name: Success Message
       debug:
-        msg: "✅ Successfully uploaded {{ archive_filename }} to {{ sftp_host }}:{{ remote_dir }}"
-      when: not sftp_result.failed
+        msg: "✅ Successfully uploaded {{ archive_filename }} to {{ ftp_host }}:{{ remote_dir }} via FTP (Port 21)"
+      when: not ftp_result.failed
