@@ -27,51 +27,47 @@
         state: directory
         mode: '0755'
 
-    # 【修改点】使用 shell 调用 tar 命令代替 archive 模块
-    - name: Compress logs into a tarball using tar command
+    - name: Compress logs into a tarball
       shell: |
         tar -czf {{ full_local_path }} -C {{ local_log_source | dirname }} {{ local_log_source | basename }}
       args:
-        creates: "{{ full_local_path }}" # 如果文件已存在则跳过，防止重复打包
+        creates: "{{ full_local_path }}"
       register: archive_result
 
     - name: Debug archive info
       debug:
         msg: "Created archive: {{ full_local_path }} for IP: {{ host_ip }}"
 
-    # 【注意】确保被管理节点安装了 sshpass
-    - name: Check if sshpass is installed
+    - name: Ensure sshpass is installed
       package:
         name: sshpass
         state: present
       ignore_errors: true
-      become: true
 
     - name: Upload logs via SFTP
-      shell: |
-        sshpass -p '{{ sftp_password }}' sftp -o StrictHostKeyChecking=no -o BatchMode=no {{ sftp_user }}@{{ sftp_host }} << EOF
-        cd {{ remote_dir }}
-        put {{ full_local_path }}
-        bye
-        EOF
+      # 使用 echo 管道代替 << EOF，避免 shell 解析问题
+      # 移除已废弃的 warn 参数
+      shell: >
+        echo -e "cd {{ remote_dir }}\nput {{ full_local_path }}\nbye" | 
+        sshpass -p '{{ sftp_password }}' sftp -o StrictHostKeyChecking=no -o BatchMode=no {{ sftp_user }}@{{ sftp_host }}
       args:
-        warn: false
         executable: /bin/bash
       register: sftp_result
       ignore_errors: true
+      failed_when: sftp_result.rc != 0
 
     - name: Check Upload Status
       fail:
-        msg: "SFTP Upload failed! Return code: {{ sftp_result.rc }}, Stderr: {{ sftp_result.stderr }}"
-      when: sftp_result.rc != 0
+        msg: "SFTP Upload failed! Return code: {{ sftp_result.rc }}, Stderr: {{ sftp_result.stderr | default('Unknown error') }}"
+      when: sftp_result.failed
 
     - name: Clean up local archive after successful upload
       file:
         path: "{{ full_local_path }}"
         state: absent
-      when: sftp_result.rc == 0
+      when: not sftp_result.failed
 
     - name: Success Message
       debug:
         msg: "✅ Successfully uploaded {{ archive_filename }} to {{ sftp_host }}:{{ remote_dir }}"
-      when: sftp_result.rc == 0
+      when: not sftp_result.failed
