@@ -88,6 +88,8 @@
         remote_src: yes
         creates: "/tmp/zabbix-{{ zabbix_version }}"
 
+    # ... (前面的任务保持不变)
+
     - name: Configure Zabbix Agent build
       command: >
         ./configure 
@@ -103,15 +105,18 @@
       register: configure_result
 
     - name: Compile Zabbix Agent
-      make:
+      command: "make -j{{ ansible_processor_vcpus | default(1) }}"
+      args:
         chdir: "/tmp/zabbix-{{ zabbix_version }}"
-        target: all
-        jobs: "{{ ansible_processor_vcpus | default(1) }}"
+      # 优化：只有当目标二进制文件不存在时才运行，避免每次重复编译（可选）
+      # creates: "/tmp/zabbix-{{ zabbix_version }}/src/zabbix_agent/zabbix_agentd"
 
     - name: Install Zabbix Agent
-      make:
+      command: "make install"
+      args:
         chdir: "/tmp/zabbix-{{ zabbix_version }}"
-        target: install
+      # 优化：检查安装后的二进制文件是否存在
+      # creates: "{{ install_prefix }}/sbin/zabbix_agentd"
 
     - name: Create log directory
       file:
@@ -120,6 +125,8 @@
         owner: zabbix
         group: zabbix
         mode: '0755'
+
+    # ... (后面的任务保持不变)
 
     - name: Set ownership for installation directory
       file:

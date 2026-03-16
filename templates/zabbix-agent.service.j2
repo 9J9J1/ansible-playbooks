@@ -1,0 +1,16 @@
+[Unit]
+Description=Zabbix Agent
+After=syslog.target network.target
+
+[Service]
+Type=forking
+Restart=on-failure
+KillMode=control-group
+ExecStart={{ install_prefix }}/sbin/zabbix_agentd -c {{ install_prefix }}/etc/zabbix_agentd.conf
+RestartSec=10s
+TimeoutSec=0
+User=zabbix
+Group=zabbix
+
+[Install]
+WantedBy=multi-user.target
