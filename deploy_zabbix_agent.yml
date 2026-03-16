@@ -1,0 +1,163 @@
+---
+- name: Deploy Zabbix Agent 7.0 from Source (AWX Integrated)
+  hosts: all
+  become: true
+  vars:
+    zabbix_version: "7.0.0"
+    # 文件名必须与 Git 仓库中的文件名完全一致
+    zabbix_tar_file: "zabbix-{{ zabbix_version }}.tar.gz"
+    
+    install_prefix: "/usr/local/zabbix"
+    zabbix_server_ip: "10.10.10.245"
+    log_dir: "{{ install_prefix }}/logs"
+    
+    # OpenEuler 依赖包列表
+    dev_tools_group: "Development Tools"
+    required_packages:
+      - net-snmp
+      - net-snmp-devel
+      - libevent
+      - libevent-devel
+      - openssl
+      - openssl-devel
+      - curl
+      - curl-devel
+      - fping
+      - pcre
+      - pcre-devel
+      - pkgconfig
+
+  tasks:
+    - name: Debug - Show current working directory (Optional for troubleshooting)
+      debug:
+        msg: "Running in directory: {{ playbook_dir }}"
+
+    - name: Ensure Development Tools group is installed
+      yum:
+        name: "@{{ dev_tools_group }}"
+        state: present
+        update_cache: yes
+
+    - name: Install required dependencies
+      yum:
+        name: "{{ required_packages }}"
+        state: present
+
+    - name: Create zabbix group
+      group:
+        name: zabbix
+        system: yes
+        state: present
+
+    - name: Create zabbix user
+      user:
+        name: zabbix
+        group: zabbix
+        system: yes
+        home: "{{ install_prefix }}"
+        shell: /sbin/nologin
+        create_home: no
+
+    # 关键点：直接从 AWX 拉取的项目目录中读取 tar 包
+    # playbook_dir 指向 Git 仓库在控制节点上的根目录
+    - name: Verify tarball exists in the project directory
+      stat:
+        path: "{{ playbook_dir }}/{{ zabbix_tar_file }}"
+      register: tarball_stat
+      delegate_to: localhost # 在控制节点检查文件是否存在
+      become: false
+
+    - name: Fail if tarball not found in Git repo
+      fail:
+        msg: "File {{ zabbix_tar_file }} not found in the Git repository root. Please check the filename."
+      when: not tarball_stat.stat.exists
+
+    - name: Copy tarball from Control Node to Target Host
+      copy:
+        src: "{{ playbook_dir }}/{{ zabbix_tar_file }}"
+        dest: /tmp/
+        mode: '0644'
+      # 注意：copy 模块默认 src 是相对于 playbook 所在目录的，但在 AWX 中有时需要显式指定或先 scp
+      # 更稳妥的方式是使用 synchronize 或者直接 unarchive 支持 src 为本地路径（如果配置了）
+      # 这里采用最通用的方式：先 copy 到远程 /tmp
+
+    - name: Extract Zabbix source on target host
+      unarchive:
+        src: /tmp/{{ zabbix_tar_file }}
+        dest: /tmp/
+        remote_src: yes
+        creates: "/tmp/zabbix-{{ zabbix_version }}"
+
+    - name: Configure Zabbix Agent build
+      command: >
+        ./configure 
+        --prefix={{ install_prefix }} 
+        --enable-agent 
+        --with-libcurl 
+        --with-net-snmp 
+        --with-libevent 
+        --with-openssl 
+        --enable-ipv6
+      args:
+        chdir: "/tmp/zabbix-{{ zabbix_version }}"
+      register: configure_result
+
+    - name: Compile Zabbix Agent
+      make:
+        chdir: "/tmp/zabbix-{{ zabbix_version }}"
+        target: all
+        jobs: "{{ ansible_processor_vcpus | default(1) }}"
+
+    - name: Install Zabbix Agent
+      make:
+        chdir: "/tmp/zabbix-{{ zabbix_version }}"
+        target: install
+
+    - name: Create log directory
+      file:
+        path: "{{ log_dir }}"
+        state: directory
+        owner: zabbix
+        group: zabbix
+        mode: '0755'
+
+    - name: Set ownership for installation directory
+      file:
+        path: "{{ install_prefix }}"
+        owner: zabbix
+        group: zabbix
+        recurse: yes
+
+    - name: Deploy systemd service file
+      template:
+        src: templates/zabbix-agent.service.j2
+        dest: /etc/systemd/system/zabbix-agent.service
+        mode: '0644'
+      notify: reload systemd
+
+    - name: Deploy Zabbix Agent configuration
+      template:
+        src: templates/zabbix_agentd.conf.j2
+        dest: "{{ install_prefix }}/etc/zabbix_agentd.conf"
+        owner: zabbix
+        group: zabbix
+        mode: '0644'
+      notify: restart zabbix agent
+
+    - name: Enable and Start Zabbix Agent
+      systemd:
+        name: zabbix-agent
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: restart zabbix agent
+      systemd:
+        name: zabbix-agent
+        state: restarted
+        daemon_reload: yes
