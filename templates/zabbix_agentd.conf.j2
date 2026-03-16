@@ -1,0 +1,11 @@
+# Zabbix Agent Configuration managed by AWX
+
+Server={{ zabbix_server_ip }}
+ServerActive={{ zabbix_server_ip }}
+# 自动获取主机 IP 作为 Hostname
+Hostname={{ ansible_default_ipv4.address }}
+UnsafeUserParameters=1
+LogFile={{ log_dir }}/zabbix_agentd.log
+
+PidFile={{ log_dir }}/zabbix_agentd.pid
+EnableRemoteCommands=1
