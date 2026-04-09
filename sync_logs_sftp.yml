@@ -13,7 +13,7 @@
     
     # --- 本地日志配置 ---
     local_log_source: "/var/log"
-    temp_archive_path: "/tmp"
+    temp_archive_path: "/root/tmp"
     
     # --- 文件名生成逻辑 ---
     # 获取 IP，如果没有默认 IPv4，则取第一个
