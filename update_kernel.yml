@@ -1,0 +1,15 @@
+---
+- name: 更新系统内核
+  hosts: all
+  become: yes  # 以 root 权限执行，相当于 sudo
+  tasks:
+    - name: 更新 kernel 软件包到最新版本
+      yum:
+        name: kernel
+        state: latest
+        update_only: yes
+      register: kernel_update_result
+
+    - name: 显示更新结果
+      debug:
+        msg: "内核更新任务已执行。如果有新版本，系统将下载并安装。"
