@@ -1,4 +1,3 @@
-cat > ~/playbooks/sync_to_ftp.yml << 'EOF'
 ---
 - name: 同步 /root、/opt、/var/log/huawei_ipv6 到 FTP 服务器（仅上传新增/修改文件）
   hosts: localhost
@@ -30,21 +29,28 @@ cat > ~/playbooks/sync_to_ftp.yml << 'EOF'
       args:
         creates: /usr/bin/lftp
 
-    - name: 使用 lftp 同步目录到 FTP（不删除远程文件）
+    - name: 检查本地目录是否存在
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: dir_status
+      loop: "{{ local_dirs }}"
+      changed_when: false
+
+    - name: 使用 lftp 同步存在的目录到 FTP（不删除远程文件）
       ansible.builtin.command: >
         lftp -u {{ ftp_user }},{{ ftp_pass }} {{ ftp_host }} -e "
           set ftp:ssl-force true;
           set ftp:ssl-protect-data true;
           mkdir -p {{ ftp_base_dir }}/{{ server_ip.stdout }};
-          lcd {{ item }};
+          lcd {{ item.item }};
           mirror --reverse --continue --verbose --parallel=5 
                  --only-newer
-                 {{ item | basename }} {{ ftp_base_dir }}/{{ server_ip.stdout }}/{{ item | basename }};
+                 {{ item.item | basename }} {{ ftp_base_dir }}/{{ server_ip.stdout }}/{{ item.item | basename }};
           bye"
-      loop: "{{ local_dirs }}"
+      loop: "{{ dir_status.results }}"
+      when: item.stat.exists == true
       register: sync_result
 
     - name: 显示同步结果
       ansible.builtin.debug:
-        var: sync_result.results | map(attribute='stdout_lines') | list
-EOF
+        var: sync_result.results | default([]) | map(attribute='stdout_lines') | list
