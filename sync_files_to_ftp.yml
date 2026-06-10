@@ -1,8 +1,8 @@
 ---
-- name: 同步 /root、/opt、/var/log/huawei_ipv6 到 FTP 服务器（仅上传新增/修改文件）
-  hosts: localhost
-  gather_facts: false
-
+- name: 同步 /root、/opt、/var/log/huawei_ipv6 到 FTP 服务器（增量上传）
+  hosts: all
+  become: true
+  gather_facts: true
 
   vars:
     ftp_host: "10.111.6.110"
@@ -18,41 +18,43 @@
   tasks:
 
     - name: 安装 lftp（如果未安装）
-      ansible.builtin.command: yum install -y lftp
-      args:
-        creates: /usr/bin/lftp
+      package:
+        name: lftp
+        state: present
+      ignore_errors: true
 
     - name: 获取本服务器 IP
-      ansible.builtin.shell: hostname -I | awk '{print $1}'
+      shell: hostname -I | awk '{print $1}'
       register: server_ip
       changed_when: false
 
     - name: 显示服务器 IP
-      ansible.builtin.debug:
-        msg: "本服务器 IP 是 {{ server_ip.stdout }}，目标路径: {{ ftp_base_dir }}/{{ server_ip.stdout }}"
+      debug:
+        msg: "本服务器 IP 是 {{ server_ip.stdout }}，上传目标: {{ ftp_base_dir }}/{{ server_ip.stdout }}"
 
-    - name: 检查本地目录是否存在
-      ansible.builtin.stat:
-        path: "{{ item }}"
-      register: dir_status
+    - name: 检查并同步每个存在的目录
+      block:
+        - name: 检查目录是否存在
+          stat:
+            path: "{{ item }}"
+          register: dir_status
+
+        - name: 使用 lftp 增量同步目录（仅上传新增/修改的文件）
+          command: >
+            lftp -u {{ ftp_user }},{{ ftp_pass }} {{ ftp_host }} -e "
+              set ftp:ssl-force true;
+              set ftp:ssl-protect-data true;
+              mkdir -p {{ ftp_base_dir }}/{{ server_ip.stdout }}/{{ item | basename }};
+              lcd {{ item }};
+              mirror --reverse --continue --verbose --parallel=5 --only-newer
+                     {{ item | basename }} {{ ftp_base_dir }}/{{ server_ip.stdout }}/{{ item | basename }};
+              bye"
+          when: dir_status.stat.exists == true
+          register: sync_result
       loop: "{{ local_dirs }}"
-      changed_when: false
-
-    - name: 使用 lftp 同步存在的目录到 FTP（仅上传新增/修改，不删除远程）
-      ansible.builtin.command: >
-        lftp -u {{ ftp_user }},{{ ftp_pass }} {{ ftp_host }} -e "
-          set ftp:ssl-force true;
-          set ftp:ssl-protect-data true;
-          mkdir -p {{ ftp_base_dir }}/{{ server_ip.stdout }};
-          lcd {{ item.item }};
-          mirror --reverse --continue --verbose --parallel=5 
-                 --only-newer
-                 {{ item.item | basename }} {{ ftp_base_dir }}/{{ server_ip.stdout }}/{{ item.item | basename }};
-          bye"
-      loop: "{{ dir_status.results }}"
-      when: item.stat.exists == true
-      register: sync_result
+      loop_control:
+        loop_var: item
 
     - name: 显示同步结果
-      ansible.builtin.debug:
+      debug:
         var: sync_result.results | default([]) | map(attribute='stdout_lines') | list
