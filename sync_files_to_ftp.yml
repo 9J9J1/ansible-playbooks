@@ -1,33 +1,39 @@
     - name: 使用 lftp 增量同步 huawei_ipv6 日志目录
       shell: |
-        # 1. 先检查本地目录内容，确认 Ansible 能读取文件
-        echo "=== 本地 /var/log/huawei_ipv6 目录内容 ==="
-        ls -la /var/log/huawei_ipv6/
-        
-        # 2. 执行 lftp 命令
-        lftp -u {{ ftp_user }},{{ ftp_pass }} {{ ftp_host }} << 'LFTPCMD'
-          # 启用详细模式，输出更多日志
+        # 1. 调试：检查本地目录是否存在及权限
+        echo "=== 开始同步任务 ==="
+        echo "当前用户: $(whoami)"
+        echo "本地目录内容:"
+        ls -la /var/log/huawei_ipv6/ || echo "目录为空或无法访问"
+
+        # 2. 执行 lftp 同步
+        lftp -u "{{ ftp_user }}", "{{ ftp_pass }}" "{{ ftp_host }}" << EOF
+          # lftp 设置
           set debug 3;
           set mirror:verbose 3;
-          
-          # 创建远程目录
-          mkdir -p {{ ftp_base_dir }}/{{ server_ip.stdout }}/huawei_ipv6;
-          
+          set net:timeout 30;
+          set net:reconnect-interval-base 5;
+
+          # 远程操作指令
+          # 尝试创建父目录（如果不存在）
+          mkdir -p "{{ ftp_base_dir }}/{{ server_ip.stdout }}/huawei_ipv6"
+
           # 切换本地目录
-          lcd /var/log/huawei_ipv6;
-          
-          # 执行镜像上传
-          # 移除了复杂的正则排除，先用简单的 glob 排除测试
+          lcd /var/log/huawei_ipv6
+
+          # 执行增量镜像上传
+          # --reverse: 上传
+          # --only-newer: 仅上传更新的文件（基于时间/大小）
+          # --parallel=5: 并发5个连接
           mirror --reverse --continue --verbose --parallel=5 --only-newer \
                  --exclude "*.lock" --exclude ".*.swp" --exclude "*.tmp" \
-                 . {{ ftp_base_dir }}/{{ server_ip.stdout }}/huawei_ipv6;
+                 . "{{ ftp_base_dir }}/{{ server_ip.stdout }}/huawei_ipv6"
+
+          # 退出
           bye
-        LFTPCMD
+        EOF
       when: dir_status.stat.exists == true
       register: sync_result
-      # ignore_errors: true  # 【重要】暂时注释掉这行，让错误直接暴露出来
-      # no_log: false         # 【重要】强制开启日志，显示具体错误（注意：密码会显示，调试完请改回 true）
-
-    - name: 显示同步结果（调试）
-      debug:
-        msg: "{{ sync_result.stdout_lines | default(['无输出']) }}"
+      # 注意：为了调试，请暂时注释掉 no_log 和 ignore_errors
+      # no_log: false
+      # ignore_errors: false
