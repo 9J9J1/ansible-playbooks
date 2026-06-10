@@ -1,12 +1,12 @@
 ---
 - name: 同步 /root、/opt、/var/log/huawei_ipv6 到 FTP 服务器（仅上传新增/修改文件）
   hosts: localhost
-  become: yes
+  # become: yes          # 已注释掉，避免 sudo 不存在的问题
   vars:
     ftp_host: "10.111.6.110"
     ftp_user: "dxedu"
     ftp_pass: "Dxedu@2024"
-    ftp_base_dir: "upload"
+    ftp_base_dir: "uplod"
 
     local_dirs:
       - "/root"
@@ -14,6 +14,12 @@
       - "/var/log/huawei_ipv6"
 
   tasks:
+
+    - name: 安装 sudo（如果不存在）
+      ansible.builtin.command: yum install -y sudo
+      args:
+        creates: /usr/bin/sudo
+      become: false
 
     - name: 获取本服务器 IP
       ansible.builtin.shell: hostname -I | awk '{print $1}'
@@ -28,6 +34,7 @@
       ansible.builtin.command: yum install -y lftp
       args:
         creates: /usr/bin/lftp
+      become: false
 
     - name: 检查本地目录是否存在
       ansible.builtin.stat:
@@ -50,6 +57,7 @@
       loop: "{{ dir_status.results }}"
       when: item.stat.exists == true
       register: sync_result
+      become: false
 
     - name: 显示同步结果
       ansible.builtin.debug:
