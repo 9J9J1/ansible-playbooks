@@ -1,12 +1,14 @@
 ---
 - name: 同步 /root、/opt、/var/log/huawei_ipv6 到 FTP 服务器（仅上传新增/修改文件）
   hosts: localhost
-  # become: yes          # 已注释掉，避免 sudo 不存在的问题
+  gather_facts: false          # 关键：关闭自动 facts 收集，避免 sudo 错误
+  # become: yes                # 已完全移除
+
   vars:
     ftp_host: "10.111.6.110"
     ftp_user: "dxedu"
     ftp_pass: "Dxedu@2024"
-    ftp_base_dir: "uplod"
+    ftp_base_dir: "upload"
 
     local_dirs:
       - "/root"
@@ -43,7 +45,7 @@
       loop: "{{ local_dirs }}"
       changed_when: false
 
-    - name: 使用 lftp 同步存在的目录到 FTP（不删除远程文件）
+    - name: 使用 lftp 同步存在的目录到 FTP（仅上传新增/修改，不删除远程）
       ansible.builtin.command: >
         lftp -u {{ ftp_user }},{{ ftp_pass }} {{ ftp_host }} -e "
           set ftp:ssl-force true;
