@@ -32,28 +32,26 @@
       debug:
         msg: "本服务器 IP 是 {{ server_ip.stdout }}，上传目标: {{ ftp_base_dir }}/{{ server_ip.stdout }}"
 
-    - name: 检查并同步每个存在的目录
-      block:
-        - name: 检查目录是否存在
-          stat:
-            path: "{{ item }}"
-          register: dir_status
-
-        - name: 使用 lftp 增量同步目录（仅上传新增/修改的文件）
-          command: >
-            lftp -u {{ ftp_user }},{{ ftp_pass }} {{ ftp_host }} -e "
-              set ftp:ssl-force true;
-              set ftp:ssl-protect-data true;
-              mkdir -p {{ ftp_base_dir }}/{{ server_ip.stdout }}/{{ item | basename }};
-              lcd {{ item }};
-              mirror --reverse --continue --verbose --parallel=5 --only-newer
-                     {{ item | basename }} {{ ftp_base_dir }}/{{ server_ip.stdout }}/{{ item | basename }};
-              bye"
-          when: dir_status.stat.exists == true
-          register: sync_result
+    - name: 检查目录是否存在
+      stat:
+        path: "{{ item }}"
+      register: dir_status
       loop: "{{ local_dirs }}"
-      loop_control:
-        loop_var: item
+      changed_when: false
+
+    - name: 使用 lftp 增量同步目录（仅上传新增/修改的文件）
+      command: >
+        lftp -u {{ ftp_user }},{{ ftp_pass }} {{ ftp_host }} -e "
+          set ftp:ssl-force true;
+          set ftp:ssl-protect-data true;
+          mkdir -p {{ ftp_base_dir }}/{{ server_ip.stdout }}/{{ item.item | basename }};
+          lcd {{ item.item }};
+          mirror --reverse --continue --verbose --parallel=5 --only-newer
+                 {{ item.item | basename }} {{ ftp_base_dir }}/{{ server_ip.stdout }}/{{ item.item | basename }};
+          bye"
+      loop: "{{ dir_status.results }}"
+      when: item.stat.exists == true
+      register: sync_result
 
     - name: 显示同步结果
       debug:
