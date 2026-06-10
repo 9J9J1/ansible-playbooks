@@ -1,5 +1,5 @@
 ---
-- name: 同步 /root、/opt、/var/log/huawei_ipv6 到 FTP 服务器（增量上传）
+- name: 同步/var/log/huawei_ipv6 到 FTP 服务器（增量上传）
   hosts: all
   become: true
   gather_facts: true
@@ -11,8 +11,6 @@
     ftp_base_dir: "upload"
 
     local_dirs:
-      - "/root"
-      - "/opt"
       - "/var/log/huawei_ipv6"
 
   tasks:
