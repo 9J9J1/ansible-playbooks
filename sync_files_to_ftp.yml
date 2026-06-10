@@ -1,5 +1,5 @@
 ---
-- name: 增量上传 huawei_ipv6 日志目录到 FTP
+- name: 使用原生 curl 通过 FTP 上传日志文件
   hosts: all
   become: true
   gather_facts: true
@@ -34,13 +34,12 @@
       register: files_to_upload
       when: dir_status.stat.exists
 
-    - name: 逐个上传文件到 FTP 服务器
-      ansible.builtin.uri:
-        url: "ftp://{{ ftp_user }}:{{ ftp_pass }}@{{ ftp_host }}/{{ ftp_base_dir }}/{{ server_ip }}/huawei_ipv6/{{ item.path | basename }}"
-        method: PUT
-        src: "{{ item.path }}"
-        force_basic_auth: yes
-        status_code: [200, 201, 226, 250]  # FTP 上传成功的常见状态码
+    - name: 使用 curl 逐个上传文件到 FTP 服务器
+      shell: >
+        curl -T "{{ item.path }}" 
+        -u "{{ ftp_user }}:{{ ftp_pass }}" 
+        "ftp://{{ ftp_host }}/{{ ftp_base_dir }}/{{ server_ip }}/huawei_ipv6/{{ item.path | basename }}"
+        --ftp-create-dirs
       loop: "{{ files_to_upload.files }}"
       loop_control:
         label: "{{ item.path | basename }}"
@@ -49,5 +48,5 @@
 
     - name: 显示上传结果摘要
       debug:
-        msg: "成功上传 {{ upload_results.results | selectattr('status_code', 'in', [200, 201, 226, 250]) | list | length }} 个文件"
+        msg: "FTP 上传任务执行完毕，请检查上方 curl 输出是否有报错。"
       when: dir_status.stat.exists
