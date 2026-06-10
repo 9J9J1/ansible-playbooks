@@ -10,6 +10,8 @@
     ftp_pass: "Dxedu@2024"
     ftp_base_dir: "upload"
     local_src_path: "/var/log/huawei_ipv6"
+    # 【新增】定义上传时间戳格式，例如: 20260610_152601
+    upload_timestamp: "{{ ansible_date_time.date }}_{{ ansible_date_time.hour }}{{ ansible_date_time.minute }}{{ ansible_date_time.second }}"
 
   tasks:
     - name: 获取本服务器 IP
@@ -38,7 +40,7 @@
       shell: >
         curl -T "{{ item.path }}" 
         -u "{{ ftp_user }}:{{ ftp_pass }}" 
-        "ftp://{{ ftp_host }}/{{ ftp_base_dir }}/{{ server_ip }}/huawei_ipv6/{{ item.path | basename }}"
+        "ftp://{{ ftp_host }}/{{ ftp_base_dir }}/{{ server_ip }}/huawei_ipv6/{{ item.path | basename }}_{{ upload_timestamp }}"
         --ftp-create-dirs
       loop: "{{ files_to_upload.files }}"
       loop_control:
