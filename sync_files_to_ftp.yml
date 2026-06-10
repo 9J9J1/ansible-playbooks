@@ -1,5 +1,5 @@
 ---
-- name: 同步/var/log/huawei_ipv6 到 FTP 服务器（增量上传）
+- name: 仅同步 /var/log/huawei_ipv6 到 FTP 服务器（增量上传）
   hosts: all
   become: true
   gather_facts: true
@@ -9,9 +9,6 @@
     ftp_user: "dxedu"
     ftp_pass: "Dxedu@2024"
     ftp_base_dir: "upload"
-
-    local_dirs:
-      - "/var/log/huawei_ipv6"
 
   tasks:
 
@@ -28,26 +25,28 @@
 
     - name: 显示服务器 IP
       debug:
-        msg: "本服务器 IP 是 {{ server_ip.stdout }}，上传目标: {{ ftp_base_dir }}/{{ server_ip.stdout }}"
+        msg: "本服务器 IP 是 {{ server_ip.stdout }}，上传目标: {{ ftp_base_dir }}/{{ server_ip.stdout }}/huawei_ipv6"
 
-    - name: 检查目录是否存在
+    - name: 检查 /var/log/huawei_ipv6 是否存在
       stat:
-        path: "{{ item }}"
+        path: "/var/log/huawei_ipv6"
       register: dir_status
-      loop: "{{ local_dirs }}"
       changed_when: false
 
-    - name: 使用 lftp 增量同步目录（仅上传新增/修改的文件）
-      command: >
-        lftp -u {{ ftp_user }},{{ ftp_pass }} {{ ftp_host }} -e "
-          mkdir -p {{ ftp_base_dir }}/{{ server_ip.stdout }}/{{ item.item | basename }};
-          lcd {{ item.item }};
-          mirror --reverse --continue --verbose --parallel=5 --only-newer
-                 {{ item.item | basename }} {{ ftp_base_dir }}/{{ server_ip.stdout }}/{{ item.item | basename }};
-          bye"
-      loop: "{{ dir_status.results }}"
-      when: item.stat.exists == true
+    - name: 使用 lftp 增量同步 huawei_ipv6 日志目录
+      shell: |
+        lftp -u {{ ftp_user }},{{ ftp_pass }} {{ ftp_host }} << 'LFTPCMD'
+          set mirror:exclude-regex "\.(lock|swp|tmp)$|/.ansible/tmp/";
+          mkdir -p {{ ftp_base_dir }}/{{ server_ip.stdout }}/huawei_ipv6;
+          lcd /var/log/huawei_ipv6;
+          mirror --reverse --continue --verbose --parallel=5 --only-newer \
+                 --exclude-glob "*.lock" --exclude-glob ".*.swp" --exclude-glob "*.tmp" \
+                 . {{ ftp_base_dir }}/{{ server_ip.stdout }}/huawei_ipv6;
+          bye
+LFTPCMD
+      when: dir_status.stat.exists == true
       register: sync_result
+      ignore_errors: true
 
     - name: 显示同步结果
       debug:
