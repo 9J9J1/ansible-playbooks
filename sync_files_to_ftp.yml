@@ -19,9 +19,9 @@
   tasks:
 
     - name: 安装 lftp（如果未安装）
-      ansible.builtin.yum:
-        name: lftp
-        state: present
+      ansible.builtin.command: yum install -y lftp
+      args:
+        creates: /usr/bin/lftp
 
     - name: 获取本服务器 IP
       ansible.builtin.shell: hostname -I | awk '{print $1}'
