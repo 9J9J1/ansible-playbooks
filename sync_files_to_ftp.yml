@@ -7,11 +7,10 @@
   vars:
     ftp_host: "10.111.6.110"
     ftp_user: "dxedu"
-    ftp_pass: "Dxedu@2024"
     ftp_base_dir: "upload"
+    # 注意：密码已移除，将在 AWX 中通过环境变量或 Vault 注入
 
   tasks:
-
     - name: 安装 lftp（如果未安装）
       package:
         name: lftp
@@ -43,11 +42,14 @@
                  --exclude-glob "*.lock" --exclude-glob ".*.swp" --exclude-glob "*.tmp" \
                  . {{ ftp_base_dir }}/{{ server_ip.stdout }}/huawei_ipv6;
           bye
-LFTPCMD
+        LFTPCMD
       when: dir_status.stat.exists == true
       register: sync_result
       ignore_errors: true
+      no_log: true  # 【关键修改】隐藏包含密码的完整命令，防止密码泄露到 AWX 日志中
+      environment:  # 【关键修改】通过环境变量传递密码，比直接写在命令行更安全
+        ftp_pass: "{{ ftp_pass }}"
 
     - name: 显示同步结果
       debug:
-        var: sync_result.results | default([]) | map(attribute='stdout_lines') | list
+        msg: "{{ sync_result.stdout_lines | default([]) }}"  # 【关键修改】优化输出格式，避免 AWX 日志中显示复杂的对象结构
