@@ -13,6 +13,7 @@
     # 定义上传时间戳格式
     upload_timestamp: "{{ ansible_date_time.date }}_{{ ansible_date_time.hour }}{{ ansible_date_time.minute }}{{ ansible_date_time.second }}"
 
+
   tasks:
     - name: 获取本服务器 IP
       command: hostname -I
