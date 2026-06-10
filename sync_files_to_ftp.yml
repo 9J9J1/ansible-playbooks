@@ -2,15 +2,14 @@
 - name: 同步 /root、/opt、/var/log/huawei_ipv6 到 FTP 服务器（仅上传新增/修改文件）
   hosts: localhost
   gather_facts: false
-  become: yes                    # 使用 Root 凭证提升权限
+  become: yes
   become_user: root
-  become_method: sudo            # 或 su，根据你的凭证设置
 
   vars:
     ftp_host: "10.111.6.110"
     ftp_user: "dxedu"
     ftp_pass: "Dxedu@2024"
-    ftp_base_dir: "uplod"
+    ftp_base_dir: "upload"
 
     local_dirs:
       - "/root"
@@ -20,7 +19,7 @@
   tasks:
 
     - name: 安装 lftp（如果未安装）
-      ansible.builtin.package:
+      ansible.builtin.yum:
         name: lftp
         state: present
 
