@@ -42,8 +42,6 @@
     - name: 使用 lftp 增量同步目录（仅上传新增/修改的文件）
       command: >
         lftp -u {{ ftp_user }},{{ ftp_pass }} {{ ftp_host }} -e "
-          set ftp:ssl-force true;
-          set ftp:ssl-protect-data true;
           mkdir -p {{ ftp_base_dir }}/{{ server_ip.stdout }}/{{ item.item | basename }};
           lcd {{ item.item }};
           mirror --reverse --continue --verbose --parallel=5 --only-newer
