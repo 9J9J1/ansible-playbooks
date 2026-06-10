@@ -1,1 +1,48 @@
-不用同步ftp_pass: "Dxedu@2024"  # <--- 加上这一行软件了,你直接给我写一个上传的playbook软件,
+---
+- name: 增量上传 huawei_ipv6 日志目录
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    ftp_host: "10.111.6.110"
+    ftp_user: "dxedu"
+    ftp_pass: "Dxedu@2024"
+    ftp_base_dir: "upload"
+    local_src_path: "/var/log/huawei_ipv6"
+
+  tasks:
+    - name: 获取本服务器 IP
+      command: hostname -I
+      register: ip_output
+      changed_when: false
+
+    - name: 提取第一个 IP
+      set_fact:
+        server_ip: "{{ ip_output.stdout.split(' ')[0] }}"
+
+    - name: 检查源目录是否存在
+      stat:
+        path: "{{ local_src_path }}"
+      register: dir_status
+
+    - name: 使用 synchronize 增量上传文件
+      synchronize:
+        src: "{{ local_src_path }}/"  # 注意：末尾的斜杠很重要，表示同步目录内容
+        dest: "rsync://{{ ftp_user }}:{{ ftp_pass }}@{{ ftp_host }}/{{ ftp_base_dir }}/{{ server_ip }}/huawei_ipv6"
+        mode: push
+        archive: yes
+        recursive: yes
+        times: yes
+        delete: no
+        rsync_opts:
+          - "--verbose"
+          - "--exclude=*.lock"
+          - "--exclude=.*.swp"
+      when: dir_status.stat.exists
+      register: sync_result
+
+    - name: 显示同步结果
+      debug:
+        msg: "{{ sync_result.stdout_lines | default(['没有捕获到输出']) }}"
+      when: dir_status.stat.exists
