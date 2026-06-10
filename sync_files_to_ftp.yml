@@ -2,8 +2,7 @@
 - name: 同步 /root、/opt、/var/log/huawei_ipv6 到 FTP 服务器（仅上传新增/修改文件）
   hosts: localhost
   gather_facts: false
-  become: yes
-  become_user: root
+
 
   vars:
     ftp_host: "10.111.6.110"
