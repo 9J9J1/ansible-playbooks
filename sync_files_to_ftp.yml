@@ -6,7 +6,7 @@
     ftp_host: "10.111.6.110"
     ftp_user: "dxedu"
     ftp_pass: "Dxedu@2024"
-    ftp_base_dir: "uploud"
+    ftp_base_dir: "upload"
 
     local_dirs:
       - "/root"
