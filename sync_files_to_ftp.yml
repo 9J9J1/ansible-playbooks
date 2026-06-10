@@ -1,5 +1,5 @@
 ---
-- name: 增量上传 huawei_ipv6 日志目录
+- name: 增量上传 huawei_ipv6 日志目录到 FTP
   hosts: all
   become: true
   gather_facts: true
@@ -26,23 +26,28 @@
         path: "{{ local_src_path }}"
       register: dir_status
 
-    - name: 使用 synchronize 增量上传文件
-      synchronize:
-        src: "{{ local_src_path }}/"  # 注意：末尾的斜杠很重要，表示同步目录内容
-        dest: "rsync://{{ ftp_user }}:{{ ftp_pass }}@{{ ftp_host }}/{{ ftp_base_dir }}/{{ server_ip }}/huawei_ipv6"
-        mode: push
-        archive: yes
-        recursive: yes
-        times: yes
-        delete: no
-        rsync_opts:
-          - "--verbose"
-          - "--exclude=*.lock"
-          - "--exclude=.*.swp"
+    - name: 获取本地目录下的所有文件列表
+      find:
+        paths: "{{ local_src_path }}"
+        recurse: yes
+        file_type: file
+      register: files_to_upload
       when: dir_status.stat.exists
-      register: sync_result
 
-    - name: 显示同步结果
+    - name: 逐个上传文件到 FTP 服务器
+      ansible.builtin.uri:
+        url: "ftp://{{ ftp_user }}:{{ ftp_pass }}@{{ ftp_host }}/{{ ftp_base_dir }}/{{ server_ip }}/huawei_ipv6/{{ item.path | basename }}"
+        method: PUT
+        src: "{{ item.path }}"
+        force_basic_auth: yes
+        status_code: [200, 201, 226, 250]  # FTP 上传成功的常见状态码
+      loop: "{{ files_to_upload.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      when: dir_status.stat.exists and files_to_upload.files | length > 0
+      register: upload_results
+
+    - name: 显示上传结果摘要
       debug:
-        msg: "{{ sync_result.stdout_lines | default(['没有捕获到输出']) }}"
+        msg: "成功上传 {{ upload_results.results | selectattr('status_code', 'in', [200, 201, 226, 250]) | list | length }} 个文件"
       when: dir_status.stat.exists
