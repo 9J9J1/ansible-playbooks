@@ -1,39 +1,57 @@
-    - name: 使用 lftp 增量同步 huawei_ipv6 日志目录
-      shell: |
-        # 1. 调试：检查本地目录是否存在及权限
-        echo "=== 开始同步任务 ==="
-        echo "当前用户: $(whoami)"
-        echo "本地目录内容:"
-        ls -la /var/log/huawei_ipv6/ || echo "目录为空或无法访问"
+---
+- name: 仅同步 /var/log/huawei_ipv6 到 FTP 服务器
+  hosts: all
+  become: true
+  gather_facts: true
 
-        # 2. 执行 lftp 同步
-        lftp -u "{{ ftp_user }}", "{{ ftp_pass }}" "{{ ftp_host }}" << EOF
-          # lftp 设置
-          set debug 3;
-          set mirror:verbose 3;
-          set net:timeout 30;
-          set net:reconnect-interval-base 5;
+  vars:
+    ftp_host: "10.111.6.110"
+    ftp_user: "dxedu"
+    ftp_base_dir: "upload"
+    # 注意：请在 AWX 的 Extra Variables 中传入 ftp_pass
 
-          # 远程操作指令
-          # 尝试创建父目录（如果不存在）
-          mkdir -p "{{ ftp_base_dir }}/{{ server_ip.stdout }}/huawei_ipv6"
+  tasks:
+    - name: 安装 lftp
+      package:
+        name: lftp
+        state: present
+      ignore_errors: true
 
-          # 切换本地目录
-          lcd /var/log/huawei_ipv6
+    - name: 获取本服务器 IP
+      command: hostname -I
+      register: ip_output
+      changed_when: false
 
-          # 执行增量镜像上传
-          # --reverse: 上传
-          # --only-newer: 仅上传更新的文件（基于时间/大小）
-          # --parallel=5: 并发5个连接
-          mirror --reverse --continue --verbose --parallel=5 --only-newer \
-                 --exclude "*.lock" --exclude ".*.swp" --exclude "*.tmp" \
-                 . "{{ ftp_base_dir }}/{{ server_ip.stdout }}/huawei_ipv6"
+    - name: 提取第一个 IP
+      set_fact:
+        server_ip: "{{ ip_output.stdout.split(' ')[0] }}"
 
-          # 退出
-          bye
-        EOF
-      when: dir_status.stat.exists == true
+    - name: 检查源目录是否存在
+      stat:
+        path: /var/log/huawei_ipv6
+      register: dir_status
+
+    - name: 调试 - 显示将要同步的信息
+      debug:
+        msg: "准备将 /var/log/huawei_ipv6 同步到 {{ ftp_base_dir }}/{{ server_ip }}/huawei_ipv6"
+      when: dir_status.stat.exists
+
+    - name: 执行 lftp 增量同步
+      command: >
+        lftp -u {{ ftp_user }},{{ ftp_pass }} {{ ftp_host }} -e
+        "set debug 3;
+         mkdir -p {{ ftp_base_dir }}/{{ server_ip }}/huawei_ipv6;
+         mirror --reverse --continue --verbose --parallel=5 --only-newer
+         --exclude *.lock --exclude .*.swp --exclude *.tmp
+         /var/log/huawei_ipv6 {{ ftp_base_dir }}/{{ server_ip }}/huawei_ipv6;
+         bye;"
+      when: dir_status.stat.exists
       register: sync_result
-      # 注意：为了调试，请暂时注释掉 no_log 和 ignore_errors
-      # no_log: false
-      # ignore_errors: false
+      # 调试期间请保持以下两行被注释，以便查看报错
+      # ignore_errors: true
+      # no_log: true
+
+    - name: 显示同步结果
+      debug:
+        msg: "{{ sync_result.stdout_lines | default(['没有捕获到输出']) }}"
+      when: dir_status.stat.exists
