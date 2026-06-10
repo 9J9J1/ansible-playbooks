@@ -1,0 +1,50 @@
+cat > ~/playbooks/sync_to_ftp.yml << 'EOF'
+---
+- name: 同步 /root、/opt、/var/log/huawei_ipv6 到 FTP 服务器（仅上传新增/修改文件）
+  hosts: localhost
+  become: yes
+  vars:
+    ftp_host: "10.111.6.110"
+    ftp_user: "dxedu"
+    ftp_pass: "Dxedu@2024"
+    ftp_base_dir: "uplod"
+
+    local_dirs:
+      - "/root"
+      - "/opt"
+      - "/var/log/huawei_ipv6"
+
+  tasks:
+
+    - name: 获取本服务器 IP
+      ansible.builtin.shell: hostname -I | awk '{print $1}'
+      register: server_ip
+      changed_when: false
+
+    - name: 显示服务器 IP
+      ansible.builtin.debug:
+        msg: "本服务器 IP 是 {{ server_ip.stdout }}，目标路径: {{ ftp_base_dir }}/{{ server_ip.stdout }}"
+
+    - name: 使用 yum 安装 lftp（如果未安装）
+      ansible.builtin.command: yum install -y lftp
+      args:
+        creates: /usr/bin/lftp
+
+    - name: 使用 lftp 同步目录到 FTP（不删除远程文件）
+      ansible.builtin.command: >
+        lftp -u {{ ftp_user }},{{ ftp_pass }} {{ ftp_host }} -e "
+          set ftp:ssl-force true;
+          set ftp:ssl-protect-data true;
+          mkdir -p {{ ftp_base_dir }}/{{ server_ip.stdout }};
+          lcd {{ item }};
+          mirror --reverse --continue --verbose --parallel=5 
+                 --only-newer
+                 {{ item | basename }} {{ ftp_base_dir }}/{{ server_ip.stdout }}/{{ item | basename }};
+          bye"
+      loop: "{{ local_dirs }}"
+      register: sync_result
+
+    - name: 显示同步结果
+      ansible.builtin.debug:
+        var: sync_result.results | map(attribute='stdout_lines') | list
+EOF
