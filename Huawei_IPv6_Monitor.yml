@@ -1,12 +1,21 @@
+---
 - hosts: all
   gather_facts: no
+  
+  # 1. 全局参数配置区（方便后续修改）
+  vars:
+    script_dir: "/opt/collect_ipv6"       # 脚本所在的目录
+    script_pattern: "*.py"                # 要执行的脚本后缀，如需执行 shell 脚本可改为 "*.sh"
+    max_concurrency: 2                    # 单机内部最大并发数（防止服务器卡顿）
+    python_bin: "python3"                 # 使用的 Python 解释器路径
+
   tasks:
-    - name: Run IPv6 Monitor Script
-      command: python3 collect_ipv6_new.py
-      args:
-        chdir: "/opt"  # 修正：直接写路径字符串，不要加 {{ }}
+    - name: Find and Run Scripts with limited concurrency
+      shell: |
+        find {{ script_dir }} -maxdepth 1 -type f -name "{{ script_pattern }}" -print0 | \
+        xargs -0 -n 1 -P {{ max_concurrency }} {{ python_bin }}
       register: result
-      
+
     - name: Print Output
       debug: 
         var: result.stdout_lines
